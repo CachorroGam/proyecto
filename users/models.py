@@ -4,21 +4,41 @@ from PIL import Image
 from django.core.validators import MinLengthValidator
 from django.utils import timezone
 
-# Extending User Model Using a One-To-One Link
+
+
 class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
+    
     role = models.CharField(
         max_length=50, 
         choices=[
             ('Administrador', 'Administrador'), 
-            ('Lector', 'Lector'),
-            ('Empleado', 'Empleado')
+            ('Usuario', 'Usuario'),
+            ('Empleado', 'Empleado'),
         ], 
-        default='Lector'
+        default='Usuario' 
     )
+
     avatar = models.ImageField(default='default.jpg', upload_to='profile_images')
     bio = models.TextField()
+    numero_membresia = models.BigIntegerField(unique=True, null=True, blank=True)  
+    fecha_registro = models.DateTimeField(default=timezone.now)
 
+    ESTADO_MEMBRESIA_CHOICES = [
+        ('activo', 'Activo'),
+        ('inactivo', 'Inactivo'),
+    ]
+    
+    estado_membresia = models.CharField(
+        max_length=8, 
+        choices=ESTADO_MEMBRESIA_CHOICES, 
+        default='activo'
+    )  
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.role}"
+    
+    
     def __str__(self):
         return self.user.username
 
@@ -34,23 +54,44 @@ class Profile(models.Model):
 
 
 class Libro(models.Model):
+    ESTADO_CHOICES = [
+        ('disponible', 'Disponible'),
+        ('no_disponible', 'No disponible'),
+        ('reservado', 'Reservado'),
+        ('prestado', 'Prestado'),
+    ]
     TITULO_MAX_LENGTH = 200
     AUTOR_MAX_LENGTH = 100
     GENERO_MAX_LENGTH = 50
-    ISBN_MAX_LENGTH = 13  # ISBN-13 tiene 13 dígitos
-    DESCRIPCION_MAX_LENGTH = 1000
+    ISBN_MAX_LENGTH = 13
 
     titulo = models.CharField(max_length=TITULO_MAX_LENGTH)
     autor = models.CharField(max_length=AUTOR_MAX_LENGTH)
     genero = models.CharField(max_length=GENERO_MAX_LENGTH)
     fecha_publicacion = models.DateField()
-    isbn = models.CharField(
-        max_length=ISBN_MAX_LENGTH,
-        unique=True,
-        validators=[MinLengthValidator(10)],  # Asegura que el ISBN tenga al menos 10 caracteres
-    )
-    descripcion = models.TextField(max_length=DESCRIPCION_MAX_LENGTH, blank=True)
+    isbn = models.CharField(max_length=ISBN_MAX_LENGTH, unique=True, blank=True)
     disponible = models.BooleanField(default=True)
+    portada = models.ImageField(upload_to='book_covers/', blank=True, null=True)
+    descripcion = models.TextField(blank=True, null=True)  
+    reservado = models.BooleanField(default=False)
+    reservado_por = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+    
+    
+    
+
+
+
+    def generate_isbn(self):
+        last_isbn = Libro.objects.order_by('-id').first() 
+        if last_isbn:
+            last_number = int(last_isbn.isbn)
+            return str(last_number + 1) 
+        return '1000000000000'  
+
+    def save(self, *args, **kwargs):
+        if not self.isbn:
+            self.isbn = self.generate_isbn()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.titulo
@@ -60,12 +101,12 @@ class Libro(models.Model):
 class Prestamo(models.Model):
     libro = models.ForeignKey(Libro, on_delete=models.CASCADE)
     usuario = models.ForeignKey(User, on_delete=models.CASCADE)
-    fecha_prestamo = models.DateTimeField(auto_now_add=True)  # Usamos DateTimeField para la fecha y hora exacta
+    fecha_prestamo = models.DateField()  # Usamos DateTimeField para la fecha y hora exacta
     fecha_devolucion = models.DateTimeField(null=True, blank=True)
     estado = models.CharField(
         max_length=10, choices=[('prestado', 'Prestado'), ('devuelto', 'Devuelto')], default='prestado'
-    )
-    dias_prestamo = models.PositiveIntegerField(default=14)  # Cantidad de días que puede durar el préstamo
+    )  
+    dias_prestamo = models.IntegerField(null=True, blank=True)
 
     def marcar_devuelto(self):
         self.estado = 'devuelto'
@@ -73,7 +114,6 @@ class Prestamo(models.Model):
         self.save()
 
     def esta_vencido(self):
-        """Método para saber si el préstamo ha vencido"""
         if self.estado == 'prestado' and self.fecha_devolucion is None:
             return timezone.now() > self.fecha_prestamo + timezone.timedelta(days=self.dias_prestamo)
         return False
@@ -82,14 +122,6 @@ class Prestamo(models.Model):
         return f'{self.usuario.username} - {self.libro.titulo}'
 
 
-class Lector(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
-    numero_membresia = models.CharField(max_length=20, unique=True, blank=True, null=True)
-    fecha_registro = models.DateTimeField(auto_now_add=True)  # Cambio a DateTimeField
-    estado_membresia = models.BooleanField(default=True)
-
-    def __str__(self):
-        return self.user.username
 
 
 
@@ -104,3 +136,19 @@ class Auditoria(models.Model):
 
 
 
+
+
+class UserProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    avatar = models.ImageField(upload_to='avatars/', null=True, blank=True)
+    def __str__(self):
+        return self.user.username
+
+
+
+
+class Genero(models.Model):
+    nombre = models.CharField(max_length=50)
+
+    def __str__(self):
+        return self.nombre
